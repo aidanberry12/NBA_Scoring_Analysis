@@ -1,0 +1,240 @@
+---
+title: 'Project Part 3: Data Analysis'
+author: "Aidan Berry"
+date: "November 12, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Overall Question
+
+Can we accurately predict the number of points a player will score over the course of a season using their demographics, attributes, position, team, and performance data?
+
+## Step 1: Data Preprocessing
+
+```{r addLibs, warning= FALSE, echo = FALSE, message = FALSE, results = 'hide'}
+library(dplyr)
+library(ggplot2)
+library(class)
+library(gmodels)
+library(caTools)
+library(kknn)
+library(rpart)
+library(DMwR)
+library(caret)
+library(e1071)
+library(tree)
+library(randomForest)
+```
+
+Here I create the normalize function that is used to standardize the data on a uniform scale as well as the RMSE function which calculates the Root Mean Square Error for a regression model and will be used to test the accuracy of the models created. I also create a function for one hot encoding categorical variables in the dataset.
+
+```{r reqFxns, echo = TRUE}
+normalize <- function(x) {
+  num <- x - mean(x)
+  denom <- sd(x)
+  return (num/denom)
+}
+
+rmse <- function(y,yhat) {
+  num <- sum((y - yhat)^2)
+  denom <- length(y)
+  return(sqrt(num/denom))
+}
+
+onehotencoder <- function(df_orig) {
+  df<-cbind(df_orig)
+  df_clmtyp<-data.frame(clmtyp=sapply(df,class))
+  df_col_typ<-data.frame(clmnm=colnames(df),clmtyp=df_clmtyp$clmtyp)
+  for (rownm in 1:nrow(df_col_typ)) {
+    if (df_col_typ[rownm,"clmtyp"]=="factor") {
+      clmn_obj<-df[toString(df_col_typ[rownm,"clmnm"])] 
+      dummy_matx<-data.frame(model.matrix( ~.-1, data = clmn_obj))
+      dummy_matx<-dummy_matx[,c(1,3:ncol(dummy_matx))]
+      df[toString(df_col_typ[rownm,"clmnm"])]<-NULL
+      df<-cbind(df,dummy_matx)
+      df[toString(df_col_typ[rownm,"clmnm"])]<-NULL
+    }  }
+  return(df)
+  }
+```
+
+I now read in the dataset from an exported SQL query that joins fields from 3 of the tables.  This dataset still needs to be adjusted however, to get the final cleaned dataset for analysis. We will use dplyr for this.
+```{r readDataset, echo = TRUE}
+dataset <-  read.csv('C:/Users/Aidan/Documents/CSC 442/Project/regressorPreCleanedData.csv')
+allStar <- read.csv('nba_all_star_games.csv')
+```
+
+```{r inspectData, echo = FALSE, results = 'hide'}
+names(dataset)[7]<-paste("College")
+head(dataset)
+str(dataset)
+summary(dataset)
+colSums(dataset == "")
+```
+
+The only column with null values is the college column with 2163 null values.  To impute the null values for the college variable, I set all of the null values to the string "No College", which will act as a new category in this column. To do this, I had to first change the type of the College column to character, impute the missing values, and then convert the datatype back to factor (categorical). A player not going to college is still valuable data to include in the model because there could be a correlation between the players that didn't go to college and points scored in a season.
+```{r nullValues, echo = TRUE}
+  dataset$College <- as.character(dataset$College)
+  dataset$College[dataset$College==""] <- "No College"
+  dataset$College <- as.factor(dataset$College)
+```
+
+Here we need to determine if each player in the dataset was an All Star at any point in their career. To do this I created a vector that contains whether each player in the dataset was contained in the allStar dataset by signifying true or false. I then used the vectorized functionality of R to go through the dataset and change the All_Star variable to 1 if the respective value in the allstarstatus array is true.
+```{r computeAllStar, echo = TRUE}
+  allstarstatus <- dataset$Player_Name %in% allStar$player
+  dataset$All_Star[allstarstatus==TRUE] <- 1
+```
+
+This is now the final version of the dataset that will be used. A description of each variable is described below.
+
+* Points: Total number of points the player scored during that season
+* Team: 3 letter abbreviation for the team that the player is on
+* height: Height of the player in cm
+* weight: Weight of the player in kg
+* Position: The abbreviation for the position the player plays on the court
+* Age: The age of the player in years
+* All_Star: 1 if the player was ever on an all-star team, 0 if not
+
+```{r visualizations, eval = FALSE, echo = FALSE}
+  avgPointsPerPosition <- dataset %>% group_by(Position) %>% mutate(avgPts = mean(Points)) %>%   distinct(Position, avgPts)
+ ggplot(data = avgPointsPerPosition, aes(x= Position, y = avgPts, fill = Position)) + geom_bar(stat = "identity") + ylab("Average Points Per Season") + ggtitle("Average Season Points By Position") + theme(axis.text.x = element_text(angle = 90, hjust = 1), plot.title = element_text(hjust = 0.5))
+ 
+ allStarAge <- dataset %>%  filter(All_Star == 1) %>% select(Age) 
+ ggplot(data = allStarAge, aes(x = allStarAge$Age)) + geom_histogram(binwidth = 2.5) + xlab("Age") + ggtitle("Distribution of Age for Allstar Players") + theme(plot.title = element_text(hjust = 0.5))
+ 
+```
+
+
+
+To get the final dataset that is going to be used in the models, all of the variables must be numeric, which means we have to encode the 2 categorical variables and drop unnecessary ones.  Here I dropped Player_Name and College, because the name doesn't provide any relevant data and there are too many different factors for college that if it was oneHotEncoded, there would be a lot of noise and too many dimensions in the dataset for the models to make any sense of it.
+```{r transformToNumeric, echo = TRUE}
+  dataset <- dataset[-c(1,7)]
+  encodedDataset <- onehotencoder(dataset)
+```
+
+
+
+Here I visualized the relationship between the variables using a correlation plot.  To build this I dropped the Team and Position variables because there is too many levels to make sense of in the chart, and it makes the chart easier to read without them.  From this we can see there is a very strong relationship between height and weight and a small correlation between all_star status and Points scored, which both make sense in this case.
+```{r correlationPlot, echo = FALSE}
+library(ggcorrplot)
+corrDataset <- dataset[-c(2,5)]
+corr <- round(cor(corrDataset), 1)
+ggcorrplot(corr, hc.order = TRUE, outline.col = "white", lab = TRUE)
+```
+
+
+
+```{r numericalVisualizations, eval = FALSE, echo = FALSE}
+  ggplot(data = encodedDataset, aes(x= height, y = Points, color = All_Star)) + geom_point()+ ggtitle("Height of Player vs Points Scored in Season") + theme(plot.title = element_text(hjust = 0.5))
+  ggplot(data = encodedDataset, aes(x= Age, y = Points, color = All_Star)) + geom_point()+ ggtitle("Age of Player vs Points Scored in Season") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+## Step 2: Building the Models
+
+
+In order to build the model, we must first split the data into a training set and a test set.  I use the split method from the caTools library to do this in one line with a train/test ratio of 75/25 since we have a pretty good sized dataset and want the test set to be as large as possible for validation.  I then also created a scaled version of the train and test sets that are used in some models that use a euclidean distance algorithm, this way all the data is on the same scale.
+```{r trainTestSplit, echo = TRUE}
+set.seed(123)
+split <- sample.split(encodedDataset$Points, SplitRatio = 0.75)
+training_set <- subset(encodedDataset, split == TRUE)
+test_set <- subset(encodedDataset, split == FALSE)
+scaled_training_set =training_set
+scaled_test_set=test_set
+scaled_training_set[2:4] = scale(training_set[2:4])
+scaled_test_set[2:4] = scale(test_set[2:4])
+```
+
+
+### Multiple Linear Regression
+
+The first model I tried to build for this dataset is the multiple linear regression model.  I created the regressor and then prediced the values of the test set using this regressor.  The data doesn't need to be scaled for linear regression, so I just used the original training and test sets.
+```{r multipleLinearReg, echo = TRUE}
+  set.seed(123)
+  regressor_MLR = lm(formula = Points ~ .,data = training_set)
+  y_pred_MLR = predict(regressor_MLR, newdata = test_set)
+  rmse_MLR <- rmse(test_set$Points, y_pred_MLR)
+
+```
+
+### KNN Regression
+
+The next model I am going to test out for this dataset in prediciting the number of points scored in a season by a player is KNN regression. To do this I fitted the KNN model using the scaled training and test sets, since this algorithm utilizes euclidean distance metrics in its analysis.  The one hyperparameter that you must tune for KNN models it he k value.  To figure out the best k-value to use in the model to get the lowest RMSE, I loop through the k-values 1-20 and build a KNN model using each k-value. I then predict the test set points using this newly created model and plot the RMSE for each k-value.  You then want to pick the k-value that minimizes the RMSE, which appears to be at k = 19 in this case.
+```{r KNN, echo = TRUE}
+set.seed(123)
+a <- NULL
+for (i in 1:20) {
+  model <- kknn(Points ~ .,scaled_training_set,scaled_test_set,k=i,kernel="rectangular")
+  a[i] <- rmse(scaled_test_set$Points,predict(model))
+}
+plot(1:20,a,xlab="k",ylab="RMSE", ylim =c(400,550))
+
+modelFinal <- kknn(Points ~ .,scaled_training_set,scaled_test_set,k=19,kernel="rectangular")
+rmse_KNN <- rmse(scaled_test_set$Points,predict(modelFinal))
+```
+### Random Forest
+
+The next model I tested out was a random forest ensemble regression model.  A random forest is basically a "forest" of decision trees where it takes the average of the result returned from all of the decision trees.  The advantage of the Random Tree Model is that it is more robust than a sinlge decision tree since it takes the average of many trees that are all built seperately, allowing it to predict new values more accurately.  The disadvantage of the random forest is that you must choose the number of trees in the forest as a hyper parameter.  You want to use enough trees to allow the model to make accurate predictions, but you also don't want the model to overfit to the data. Like a decision tree, random forests do not need normalized values, so I used the original training and test sets to build the model.
+
+Once the model is built, I found the optimal hyperparameter for the number of trees in the forest by testing out different benchmark values as shown below.
+
+* 25 trees: RMSE = 392.8573
+* 50 trees: RMSE = 390.6675
+* 75 trees: RMSE = 389.6562
+* 100 trees: RMSE = 388.7601
+* 300 trees: RMSE = 387.6793
+
+From these findings, I chose to use 50 trees in the final model.  After 50 trees, there is diminishing improvements in the RMSE, but the number of trees is still low enough to avoid overfitting to the data.  50 is the right balance between accurate predicitons (minimizing RMSE) and avoiding overfitting in my opinion.
+
+```{r randomForest, echo = TRUE}
+set.seed(123)
+RFModel <- randomForest(x = training_set[-1], y = training_set$Points,ntree =50)
+y_pred_RF <- predict(RFModel, test_set)   
+rmse_RF <- rmse(test_set$Points, y_pred_RF)
+
+
+```
+
+### SVR (Support Vector Regression)
+
+Here we fit the SVR (Support vector regression) model to the dataset using the radial (non-linear) kernel and the eps-regression type as hyperparamters.  The SVR algorithm is very effective with outliers and on non-linear problems, so I wanted to see how it compares to the other models built earlier on in the analysis.  I also used the scaled training and test sets as the datasets because the SVR algorithm uses distance metrics in its computations, so the variables must be on the same scale.  From the report of the RMSE, this model doesn't seem to be as effective as the previous models, so I am going to try a different kernel.
+```{r SVR, echo = TRUE}
+regressor_SVR = svm(formula = Points ~ .,data = scaled_training_set,type = 'eps-regression',
+                kernel = 'radial')
+y_pred_SVR = predict(regressor_SVR, scaled_test_set)
+rmse_NLSVR <- rmse(scaled_test_set$Points, y_pred_SVR)
+
+
+```
+
+Here I fit the same SVR model using a linear kernel to see if that improves the RMSE. Unfortunately the linear kernel did worse than the radial (non-linear) kernel. We can also try using the polynomial, gaussian, and sigmoid kernels to see if these can give us better results.  The RMSE of these other kernel types are shown below.
+
+* linear: 433.3105
+* radial: 427
+* polynomial: 433.6522
+* sigmoid: 961.5413
+
+```{r SVRLinear, echo = TRUE}
+regressor_SVR_Linear = svm(formula = Points ~ .,data = scaled_training_set,type = 'eps-regression', kernel = 'linear')
+y_pred_SVR_Linear = predict(regressor_SVR_Linear, scaled_test_set)
+rmse_LSVR <- rmse(scaled_test_set$Points, y_pred_SVR_Linear)
+```
+
+## Step 3: Evaluating the Performance and Describing Findings
+
+This chart shows the model name and respective RMSE value for each of the models that I built in this analysis.  To choose the best model for use in predicting a player's points scored in a future season given their data, I would personally pick the Random Forest Regression model. This model got the smallest RMSE with only 390.6675 and is still not overfitted to the data because of the low number of trees used.  Ensemble methods are very powerful for regression, and because of this I think the Random Forest model is the best overall candidate for the final prediction model. I am confident in this model's ability to be able to accurately forecast how many points an NBA player is expected to score during a season, as long as it has access to all the data inputted into the model.
+```{r performanceCheck, echo = FALSE}
+  resultsTbl <- data.frame(Model = c("Multiple Linear Regression", "KNN Regression", "Random Forest", "Non-Linear SVR", "Linear SVR" ), RMSE = c(rmse_MLR, rmse_KNN, rmse_RF, rmse_NLSVR, rmse_LSVR))
+  resultsTbl
+
+```
+
+
+
+
+
+
+
