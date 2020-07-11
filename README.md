@@ -43,6 +43,15 @@ This plot shows the top 10 variables of the multiple linear regression model tha
 
 The models tried and their respective root mean squared error (RMSE) on the test set is shown in the table below:
 
+|        **Model**           |**Test Set RMSE**|   
+|:--------------------------:|:---------------:|
+| Multiple Linear Regression |        426.47   |
+| KNN Regression             |        423.11   |
+| Random Forest              |        390.67   |
+| Non-Linear SVR             |        427.37   |
+| Linear SVR                 |        433.31   |
+
+
 ## Results
 
 The best performing model was the Random Forest with 50 trees, which got a RMSE of 390.7, which is decent (average season points is around 600). Ensemble methods are powerful for regression, and the Random Forest model was the best option for the final prediction model. This model would prove to be effective for benchmarking the number of points a new player to the league will score in a season. This model along with the interpretability of the regression coefficients and feature importances values can prove to be valuable to coaches and team managers alike. 
