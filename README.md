@@ -24,6 +24,17 @@ This data was then imported into R via SQL queries and the necessary data prepro
 
 ## Exploratory Analysis
 
+![Height vs Points Scored by All Star Status](heightpointsbyallstarplot.png)
+From these plots we can see that most of the all-stars are in the upper-middle height range from about 185 cm - 220 cm. The low end and very high end of the height range have extremely low numbers of all-stars. The number of points scored follows a similar pattern, with the most average season points being scored by players in the upper-middle height range, with dips in points near both height extremes.
+
+![Age vs Points Scored by All Star Status](agepointsbyallstarplot.png)
+
+The age of players also plays an important role in the number of points scored by players as well as their all-star status. The age range of 21-39 seems to produce the most all-stars. The optimal player age for scoring the most average season points appears to be around the 23-29 age range. The points scored starts low and peaks in this 23-29 range, and then slowly decreases from there on out as the player gets older.
+
+![Average Points by Position](avgpointsbypositionplot.png)
+
+It appears that the SG-PF position and PG-SF positions score the most points on average per season. This makes sense because they are attacking positions that have a lot of time on the ball and are taking the most shots.
+
 ## Modeling
 
 
