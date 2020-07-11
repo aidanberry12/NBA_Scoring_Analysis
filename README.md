@@ -24,7 +24,7 @@ This data was then imported into R via SQL queries and the necessary data prepro
 
 ## Exploratory Analysis
 
-![Height vs Points Scored by All Star Status](heightpointsbyallstarplot.png)
+![Height vs Points Scored by All Star Status](graphics/heightpointsbyallstarplot.png)
 From these plots we can see that most of the all-stars are in the upper-middle height range from about 185 cm - 220 cm. The low end and very high end of the height range have extremely low numbers of all-stars. The number of points scored follows a similar pattern, with the most average season points being scored by players in the upper-middle height range, with dips in points near both height extremes.
 
 ![Age vs Points Scored by All Star Status](graphics/agepointsbyallstarplot.png)
